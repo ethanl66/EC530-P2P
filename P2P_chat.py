@@ -105,7 +105,7 @@ if __name__ == "__main__":
             print("You are the only peer in the network. Waiting for others to join...")
             while True:
                 # Every 4 seconds, scan for new peers. If new, print them and continue session init sequence. 
-                time.sleep(4)
+                time.sleep(2)
                 peers = load_peers()
                 if len(peers) > 1:  # More than one peer in the network
                     print("New peers detected in the network:")
@@ -119,6 +119,7 @@ if __name__ == "__main__":
         start_client(peer_ip, peer_port)
     except ConnectionResetError:
         print("Connection with peer has been lost. Exiting...")
+        # Add messages to database to send later
         remove_peer(my_ip, my_port)
     except:
         print("Exiting...")
