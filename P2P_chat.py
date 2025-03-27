@@ -117,7 +117,10 @@ if __name__ == "__main__":
         peer_port = int(input("Enter port: ").strip())
         #start_peer(my_ip, my_port, peer_ip, peer_port)
         start_client(peer_ip, peer_port)
-    except KeyboardInterrupt:
+    except ConnectionResetError:
+        print("Connection with peer has been lost. Exiting...")
+        remove_peer(my_ip, my_port)
+    except:
         print("Exiting...")
         remove_peer(my_ip, my_port)
 
