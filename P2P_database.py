@@ -5,6 +5,7 @@ import os
 import time		# for sleep()
 import sys		# for exit()
 from datetime import datetime 	# for timestamp
+import sqlite3
 
 debug_prints = True
 
@@ -52,6 +53,22 @@ def remove_peer(ip, port):
 
 
 # Session Initiation: Start peer thread
+def start_db(ip, port):
+    """ Connects to db and creates/adds to table of received and queued messages"""
+    con = sqlite3.connect('messages.db')	# Create connection to db, create if doesn't exist
+    cur = con.cursor()						# Create cursor object to execute SQL commands
+    table_name = f"{ip.replace('.', '_')}_{port}"  # Replace dots in IP with underscores for valid table name
+    cur.execute(f"""
+        CREATE TABLE IF NOT EXISTS Peer_{table_name}(
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			source TEXT NOT NULL,
+			dest TEXT NOT NULL,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+			message TEXT NOT NULL
+		)""")
+    con.commit()
+    con.close()
+
 def start_client(ip, port):
     """ Sends messages to the target peer """
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -75,6 +92,8 @@ def start_server(ip, port):
     server_socket.bind(("0.0.0.0", port))
     server_socket.listen(10)
     print(f"Listening on port {port}...")
+    # Connect to db and create new table on server start (when you start listening for messages)
+    start_db(ip, port)
     conn, addr = server_socket.accept()
     print(f"Connected by {addr}")
 
@@ -90,7 +109,13 @@ def start_server(ip, port):
 def start_peer(ip, port, dest_ip, dest_port):
     """ Starts a peer thread to listen for incoming messages and send messages. """
     threading.Thread(target=start_server, args=(ip, port), daemon=True).start()
+    start_db(ip, port)
     start_client(dest_ip, dest_port)
+    
+
+# Data Storage
+def save_message (src_ip, src_port, dest_ip, dest_port, message):
+    pass
 
 if __name__ == "__main__":
     try:

@@ -35,3 +35,5 @@ def test_send_rcv_msg():
     assert data == b"Hello, Server!"
     conn.close()
     server_socket.close()
+
+# Test timestamp? no need

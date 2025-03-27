@@ -2,7 +2,9 @@ import socket
 import threading
 import json
 import os
-import time
+import time		# for sleep()
+import sys		# for exit()
+from datetime import datetime 	# for timestamp
 
 debug_prints = True
 
@@ -54,9 +56,11 @@ def start_client(ip, port):
     """ Sends messages to the target peer """
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((ip, port))
+    current_utc_time = datetime.now()
+    formatted_datetime = current_utc_time.strftime("%Y-%m-%d %H:%M:%S")
 
     while True:
-        message = input("<You>: ")
+        message = input(f"{formatted_datetime} <You>: ")
         try:
             client_socket.sendall(message.encode())
         except KeyboardInterrupt:
@@ -78,7 +82,9 @@ def start_server(ip, port):
         data = conn.recv(1024)		# Receive data from the client up to 1024 bytes
         if not data:
             break
-        print(f"\nReceived from {addr}: {data.decode()}")
+        current_utc_time = datetime.now()
+        formatted_datetime = current_utc_time.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{formatted_datetime} Received from {addr}: {data.decode()}")
     conn.close()
     
 def start_peer(ip, port, dest_ip, dest_port):
@@ -121,7 +127,13 @@ if __name__ == "__main__":
         print("Connection with peer has been lost. Exiting...")
         # Add messages to database to send later
         remove_peer(my_ip, my_port)
+        sys.exit()
+    except Exception as e:
+        print(f"An unexpected error occured: {e}")
+        remove_peer(my_ip, my_port)
+        sys.exit()
     except:
         print("Exiting...")
         remove_peer(my_ip, my_port)
+        sys.exit()
 
