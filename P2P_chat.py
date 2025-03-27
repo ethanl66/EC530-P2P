@@ -1,55 +1,123 @@
 import socket
 import threading
+import json
+import os
+import time
 
-# Configuration (set IP and ports for two peers)
-PEER_A_IP = "127.0.0.1"  # Local IP
-PEER_A_PORT = 5678        # Port for Peer A
-PEER_B_IP = "127.0.0.1"  # Local IP
-PEER_B_PORT = 5679        # Port for Peer B
+debug_prints = True
 
-def start_server(port):
+# Discovery: Add self to list of peers
+PEERS_FILE = "peers.json"
+
+def load_peers():
+    """Loads the list of peers from the JSON file."""
+    if not os.path.exists(PEERS_FILE):
+        return {}
+    try:
+        with open(PEERS_FILE, "r") as file:
+            return json.load(file)
+    except json.JSONDecodeError:
+        print(f"Error: Failed to parse {PEERS_FILE}.")
+        return {}
+    
+def save_peer(ip, port):
+    """Adds a new peer to the JSON file"""
+    peers = load_peers()
+    peer_key = f"{ip}:{port}"   # Use IP:Port as the key
+    
+    if peer_key not in peers:
+        peers[peer_key] = {"ip": ip, "port": port}
+        with open(PEERS_FILE, "w") as file:
+            json.dump(peers, file, indent=4)
+        if debug_prints:
+            print(f"Peer {peer_key} added to {PEERS_FILE}.")
+    else:
+        if debug_prints:
+            print(f"Peer {peer_key} already exists in {PEERS_FILE}.")
+
+def remove_peer(ip, port):
+    """Removes a peer from the JSON file."""
+    peers = load_peers()
+    peer_key = f"{ip}:{port}"  # Use IP:Port as the unique key
+
+    if peer_key in peers:
+        del peers[peer_key]
+        with open(PEERS_FILE, "w") as file:
+            json.dump(peers, file, indent=4)
+        print(f"Peer {peer_key} removed from {PEERS_FILE}.")
+    else:
+        print(f"Peer {peer_key} not found in {PEERS_FILE}.")
+
+
+# Session Initiation: Start peer thread
+def start_client(ip, port):
+    """ Sends messages to the target peer """
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect((ip, port))
+
+    while True:
+        message = input("<You>: ")
+        try:
+            client_socket.sendall(message.encode())
+        except KeyboardInterrupt:
+            print("Exiting...")
+            client_socket.close()
+            remove_peer(ip, port)
+
+def start_server(ip, port):
     """ Starts a server to receive messages """
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind(("0.0.0.0", port))
-    server_socket.listen(1)
+    server_socket.listen(10)
     print(f"Listening on port {port}...")
-    
     conn, addr = server_socket.accept()
     print(f"Connected by {addr}")
-    
+
     while True:
         data = conn.recv(1024)		# Receive data from the client up to 1024 bytes
         if not data:
             break
         print(f"\nReceived from {addr}: {data.decode()}")
     conn.close()
-
-def start_client(target_ip, target_port):
-    """ Sends messages to the target peer """
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect((target_ip, target_port))
     
-    while True:
-        message = input("Enter message: ")
-        if message.lower() == "exit":
-            print("Exiting chat...")
-            break
-        client_socket.sendall(message.encode())
-    client_socket.close()
-
-# Combine client and server functionality for P2P chat
-def start_peer(my_port, peer_ip, peer_port):
-    """ Starts a P2P peer with server and client threads """
-    threading.Thread(target=start_server, args=(my_port,), daemon=True).start()
-    start_client(peer_ip, peer_port)
+def start_peer(ip, port, dest_ip, dest_port):
+    """ Starts a peer thread to listen for incoming messages and send messages. """
+    threading.Thread(target=start_server, args=(ip, port), daemon=True).start()
+    start_client(dest_ip, dest_port)
 
 if __name__ == "__main__":
-    print("Choose Peer A or Peer B")
-    choice = input("Enter A or B: ").strip().upper()
-    
-    if choice == "A":
-        start_peer(PEER_A_PORT, PEER_B_IP, PEER_B_PORT)
-    elif choice == "B":
-        start_peer(PEER_B_PORT, PEER_A_IP, PEER_A_PORT)
-    else:
-        print("Invalid choice. Please restart and choose A or B.")
+    try:
+        print("Choose IP and port to send from:")
+        my_ip = input("Enter IP: ").strip()
+        my_port = int(input("Enter port: ").strip())
+        # Add self to peers.json
+        save_peer(my_ip, my_port)
+        threading.Thread(target=start_server, args=(my_ip, my_port), daemon=True).start()
+        print("At any time, press Ctrl+C to exit.")
+
+        time.sleep(1)
+        print("\nCurrent peers in the network:")
+        peers = load_peers()
+        for peer_key, info in peers.items():
+            print(f"{peer_key}: {info}")
+        if len(peers) == 1:
+            print("You are the only peer in the network. Waiting for others to join...")
+            while True:
+                # Every 4 seconds, scan for new peers. If new, print them and continue session init sequence. 
+                time.sleep(4)
+                peers = load_peers()
+                if len(peers) > 1:  # More than one peer in the network
+                    print("New peers detected in the network:")
+                    for peer_key, info in peers.items():
+                        print(f"{peer_key}: {info}")
+                    break
+        print("Who do you want to connect to?")
+        peer_ip = input("Enter IP: ").strip()
+        peer_port = int(input("Enter port: ").strip())
+        #start_peer(my_ip, my_port, peer_ip, peer_port)
+        start_client(peer_ip, peer_port)
+    except KeyboardInterrupt:
+        print("Exiting...")
+        remove_peer(my_ip, my_port)
+
