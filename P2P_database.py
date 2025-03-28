@@ -94,6 +94,9 @@ def start_client(ip, port, my_ip, my_port):
     formatted_datetime = current_utc_time.strftime("%Y-%m-%d %H:%M:%S")
 
     while True:
+        # Check connection is live. 
+        # If live, check db for queued messages
+        # If queued messages, send them and display on server side and client side
         message = input(f"{formatted_datetime} <You>: ")
         try:
             client_socket.sendall(message.encode())
