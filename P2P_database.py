@@ -52,9 +52,9 @@ def remove_peer(ip, port):
         print(f"Peer {peer_key} not found in {PEERS_FILE}.")
 
 # Data Storage
-def start_db(ip, port):
+def start_db(ip, port, database="messages.db"):
     """ Connects to db and creates/adds to table of received and queued messages"""
-    con = sqlite3.connect('messages.db')	# Create connection to db, create if doesn't exist
+    con = sqlite3.connect(database)	# Create connection to db, create if doesn't exist
     cur = con.cursor()						# Create cursor object to execute SQL commands
     table_name = f"{ip.replace('.', '_')}_{port}"  # Replace dots in IP with underscores for valid table name
     cur.execute(f"""
@@ -69,9 +69,9 @@ def start_db(ip, port):
     con.commit()
     con.close()
     
-def save_message (type, src_ip, src_port, dest_ip, dest_port, message):
+def save_message (type, src_ip, src_port, dest_ip, dest_port, message, database="messages.db"):
     """ Connect to db, open correct table, save message (received or queued) """
-    con = sqlite3.connect('messages.db')	
+    con = sqlite3.connect(database)	
     cur = con.cursor()						
     if type == "received":
         table_name = f"{dest_ip.replace('.', '_')}_{dest_port}"
@@ -134,7 +134,32 @@ def start_peer(ip, port, dest_ip, dest_port):
     start_db(ip, port)
     start_client(dest_ip, dest_port, ip, port)
     
-
+# Communications Synchronization
+def send_queued_messages(ip, port):
+    # Open database table, get all queued messages, send them, soft delete from db
+    con = sqlite3.connect('messages.db')
+    cur = con.cursor()
+    table_name = f"{ip.replace('.', '_')}_{port}"
+    cur.execute(f"SELECT * FROM Peer_{table_name} WHERE type='queued'")
+    queued_messages = cur.fetchall()
+    if debug_prints:
+        print(f"Sending queued messages...")
+    for message in queued_messages:
+        try:
+            source_ip, source_port = message[2].split(":")
+            dest_ip, dest_port = message[3].split(":")
+            message_text = message[5]
+            
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.connect((dest_ip, dest_port))
+            client_socket.sendall(message_text.encode())
+            # cur.execute(f"DELETE FROM Peer_{table_name} WHERE id = ?", (message[0], ))
+            cur.execute(f"UPDATE Peer_{table_name} SET type='sent' WHERE id=?", (message[0],))		# soft delete
+            con.commit()
+            client_socket.close()
+        except Exception as e:
+            if debug_prints:
+                print(f"Failed to send message {message[5]} to {ip}:{port}. Error: {e}")
 
 
 if __name__ == "__main__":
