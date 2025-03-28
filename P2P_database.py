@@ -8,6 +8,7 @@ from datetime import datetime 	# for timestamp
 import sqlite3
 
 debug_prints = True
+messages_in_queue = False
 
 # Discovery: Add self to list of peers
 PEERS_FILE = "peers.json"
@@ -88,15 +89,19 @@ def save_message (type, src_ip, src_port, dest_ip, dest_port, message, database=
 
 def start_client(ip, port, my_ip, my_port):
     """ Sends messages to the target peer """
+    global messages_in_queue
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     client_socket.connect((ip, port))
+    # Send special message to peer to check if connection is live
+    # client_socket.sendall(f"ping from {my_ip}:{my_port}".encode())
     current_utc_time = datetime.now()
     formatted_datetime = current_utc_time.strftime("%Y-%m-%d %H:%M:%S")
 
     while True:
-        # Check connection is live. 
-        # If live, check db for queued messages
-        # If queued messages, send them and display on server side and client side
+        if messages_in_queue:
+            send_queued_messages(client_socket, my_ip, my_port)	# Check for queued messages to send
+            messages_in_queue = False
         message = input(f"{formatted_datetime} <You>: ")
         try:
             client_socket.sendall(message.encode())
@@ -112,6 +117,7 @@ def start_client(ip, port, my_ip, my_port):
 
 def start_server(ip, port):
     """ Starts a server to receive messages """
+    global messages_in_queue
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind(("0.0.0.0", port))
@@ -121,6 +127,11 @@ def start_server(ip, port):
     start_db(ip, port)
     conn, addr = server_socket.accept()
     print(f"Connected by {addr}")
+    # Check connection is live. 
+	# If live, check db for queued messages
+	# If queued messages, send them and display on server side and client side
+    #threading.Thread(target=send_queued_messages, args=(ip, port), daemon=True).start()	# Start thread to send queued messages
+    messages_in_queue = True
 
     while True:
         data = conn.recv(1024)		# Receive data from the client up to 1024 bytes
@@ -128,7 +139,7 @@ def start_server(ip, port):
             break
         current_utc_time = datetime.now()
         formatted_datetime = current_utc_time.strftime("%Y-%m-%d %H:%M:%S")
-        print(f"{formatted_datetime} Received from {addr}: {data.decode()}")
+        print(f"{formatted_datetime} \nReceived from {addr}: {data.decode()}")
     conn.close()
     
 def start_peer(ip, port, dest_ip, dest_port):
@@ -138,31 +149,42 @@ def start_peer(ip, port, dest_ip, dest_port):
     start_client(dest_ip, dest_port, ip, port)
     
 # Communications Synchronization
-def send_queued_messages(ip, port):
+def send_queued_messages(client_socket, ip, port):
     # Open database table, get all queued messages, send them, soft delete from db
     con = sqlite3.connect('messages.db')
     cur = con.cursor()
     table_name = f"{ip.replace('.', '_')}_{port}"
     cur.execute(f"SELECT * FROM Peer_{table_name} WHERE type='queued'")
     queued_messages = cur.fetchall()
+    if queued_messages == []:
+        if debug_prints:
+            print("No queued messages to send.")
+        return
     if debug_prints:
         print(f"Sending queued messages...")
     for message in queued_messages:
         try:
             source_ip, source_port = message[2].split(":")
             dest_ip, dest_port = message[3].split(":")
+            source_port = int(source_port)
+            dest_port = int(dest_port)
             message_text = message[5]
+            if debug_prints:
+                print(f"Sending message {message_text} to {dest_ip}:{dest_port}")
             
-            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_socket.connect((dest_ip, dest_port))
+            #client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            #client_socket.connect((dest_ip, dest_port))
             client_socket.sendall(message_text.encode())
             # cur.execute(f"DELETE FROM Peer_{table_name} WHERE id = ?", (message[0], ))
+            if debug_prints:
+                print("Updating database message status...")
             cur.execute(f"UPDATE Peer_{table_name} SET type='sent' WHERE id=?", (message[0],))		# soft delete
             con.commit()
-            client_socket.close()
+            #client_socket.close()
         except Exception as e:
             if debug_prints:
                 print(f"Failed to send message {message[5]} to {ip}:{port}. Error: {e}")
+    con.close()
 
 
 if __name__ == "__main__":
