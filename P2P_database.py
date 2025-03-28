@@ -6,9 +6,11 @@ import time		# for sleep()
 import sys		# for exit()
 from datetime import datetime 	# for timestamp
 import sqlite3
+import queue
 
 debug_prints = True
 messages_in_queue = False
+messages_in_queue_queue = queue.Queue()		# Shared queue
 
 # Discovery: Add self to list of peers
 PEERS_FILE = "peers.json"
@@ -99,9 +101,13 @@ def start_client(ip, port, my_ip, my_port):
     formatted_datetime = current_utc_time.strftime("%Y-%m-%d %H:%M:%S")
 
     while True:
-        if messages_in_queue:
+        """ if messages_in_queue:
             send_queued_messages(client_socket, my_ip, my_port)	# Check for queued messages to send
-            messages_in_queue = False
+            messages_in_queue = False """
+        if not messages_in_queue_queue.empty():
+            signal = messages_in_queue_queue.get()
+            if signal == "send_queued_messages":
+                send_queued_messages(client_socket, my_ip, my_port)
         message = input(f"{formatted_datetime} <You>: ")
         try:
             client_socket.sendall(message.encode())
@@ -132,6 +138,7 @@ def start_server(ip, port):
 	# If queued messages, send them and display on server side and client side
     #threading.Thread(target=send_queued_messages, args=(ip, port), daemon=True).start()	# Start thread to send queued messages
     messages_in_queue = True
+    messages_in_queue_queue.put("send_queued_messages")
 
     while True:
         data = conn.recv(1024)		# Receive data from the client up to 1024 bytes
