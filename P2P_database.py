@@ -51,8 +51,7 @@ def remove_peer(ip, port):
     else:
         print(f"Peer {peer_key} not found in {PEERS_FILE}.")
 
-
-# Session Initiation: Start peer thread
+# Data Storage
 def start_db(ip, port):
     """ Connects to db and creates/adds to table of received and queued messages"""
     con = sqlite3.connect('messages.db')	# Create connection to db, create if doesn't exist
@@ -61,6 +60,7 @@ def start_db(ip, port):
     cur.execute(f"""
         CREATE TABLE IF NOT EXISTS Peer_{table_name}(
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,			-- Received or Queued
 			source TEXT NOT NULL,
 			dest TEXT NOT NULL,
 			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -68,8 +68,25 @@ def start_db(ip, port):
 		)""")
     con.commit()
     con.close()
+    
+def save_message (type, src_ip, src_port, dest_ip, dest_port, message):
+    """ Connect to db, open correct table, save message (received or queued) """
+    con = sqlite3.connect('messages.db')	
+    cur = con.cursor()						
+    if type == "received":
+        table_name = f"{dest_ip.replace('.', '_')}_{dest_port}"
+    elif type == "queued":
+        table_name = f"{src_ip.replace('.', '_')}_{src_port}"  
+    source = f"{src_ip}:{src_port}"
+    dest = f"{dest_ip}:{dest_port}"
+    cur.execute(f"INSERT INTO Peer_{table_name} (type, source, dest, message) VALUES (?, ?, ?, ?)", (type, source, dest, message))
+    con.commit()
+    con.close()
 
-def start_client(ip, port):
+
+# Session Initiation: Start peer thread
+
+def start_client(ip, port, my_ip, my_port):
     """ Sends messages to the target peer """
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((ip, port))
@@ -80,6 +97,11 @@ def start_client(ip, port):
         message = input(f"{formatted_datetime} <You>: ")
         try:
             client_socket.sendall(message.encode())
+        except Exception as e:
+            save_message("queued", my_ip, my_port, ip, port, message)
+            if debug_prints:
+                # print("Saving message to send later...")
+                pass
         except KeyboardInterrupt:
             print("Exiting...")
             client_socket.close()
@@ -110,12 +132,10 @@ def start_peer(ip, port, dest_ip, dest_port):
     """ Starts a peer thread to listen for incoming messages and send messages. """
     threading.Thread(target=start_server, args=(ip, port), daemon=True).start()
     start_db(ip, port)
-    start_client(dest_ip, dest_port)
+    start_client(dest_ip, dest_port, ip, port)
     
 
-# Data Storage
-def save_message (src_ip, src_port, dest_ip, dest_port, message):
-    pass
+
 
 if __name__ == "__main__":
     try:
@@ -147,7 +167,7 @@ if __name__ == "__main__":
         peer_ip = input("Enter IP: ").strip()
         peer_port = int(input("Enter port: ").strip())
         #start_peer(my_ip, my_port, peer_ip, peer_port)
-        start_client(peer_ip, peer_port)
+        start_client(peer_ip, peer_port, my_ip, my_port)
     except ConnectionResetError:
         print("Connection with peer has been lost. Exiting...")
         # Add messages to database to send later
