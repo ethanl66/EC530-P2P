@@ -11,6 +11,7 @@ import sqlite3
 debug_prints = True
 messages_in_queue = False
 """ messages_in_queue_queue = queue.Queue()		# Shared queue """
+# Make it so that when online it sends a signal that is checked by the server, and make the server send the message?
 
 # Discovery: Add self to list of peers
 PEERS_FILE = "peers.json"
